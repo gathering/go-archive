@@ -1,0 +1,39 @@
+# The Gathering - Archive
+
+A Wayback-machine (Internet Archive) style archive service of gathering.org.
+Relies on one or more WARC collections under the hood that are fetched from
+public sources (provided by us).
+
+Heavily based on services provided by [Webrecorder project](https://github.com/webrecorder)
+
+## Basic structure
+
+### Services
+
+- web service - Uses `Webrecorder/pywb` to expose a web interface that can be used to navigate archive
+- crawler service - Uses `Webrecorder/browsertrix-crawler` to (on demand) crawl one or more urls and generate a WARC collection from it
+- proxy service - Not in place, would act as entrypoint for web service (nginx, apache, or similar)
+
+### Logic
+
+On startup web service runs `wayback/startup.sh` script. This populates the
+`sources` folder with WARC collections from various sources (such as our
+archive github repositories) and copies the relevant files into `collections`
+for use by web service / `pywb`.
+
+The web service expose pages to search and navigate through archive, as well as
+a "landing page" with shortcuts to per year gathering.org versions. The landing
+page is useful since we tend to change url each year and we don't want to force
+users to know this and apply the right search terms.
+
+(Landing page is not in place yet)
+
+## Adding new archive sources
+
+A clean version of this archive does not have any contents of it's own. These
+are instead fetched and/or updated on startup via `wayback/startup.sh`. This is
+done instead of expecting a pre-populated volume on first run, to make it work
+in a variety of different setups without requiring a bunch of manual setup
+steps.
+
+Add additional repositories or other sources there.

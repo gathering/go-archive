@@ -1,0 +1,9 @@
+collections_root: collections
+archive_paths: archive
+index_paths: indexes
+
+autoindex: 60
+
+# Magic "catch all" collection, will try to resolve a given url across all collections
+collections:
+  all: $all

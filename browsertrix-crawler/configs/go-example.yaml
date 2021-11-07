@@ -1,0 +1,24 @@
+seeds:
+  - url: https://www.gathering.org/tg22/
+    include: www.gathering.org/(tg22|api)
+  - url: https://archive.gathering.org/tg21/
+    include: archive.gathering.org/(tg21|api)
+  - url: https://archive.gathering.org/tg20/
+    include: archive.gathering.org/(tg20|api)
+
+collection: gathering-org-example
+
+behaviors: autoscroll,autoplay,autofetch,siteSpecific
+waitUntil: load,networkidle0
+generateCDX: true
+combineWARCs: true
+saveState: always
+workers: 2
+
+# Make "live" crawlign view available at 9037
+newContext: window
+screencastPort: 9037
+
+warcinfo:
+  operator: The Gathering
+  hostname: gathering.org

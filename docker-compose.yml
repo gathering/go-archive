@@ -1,0 +1,40 @@
+version: '3'
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: wayback/Dockerfile
+    command: wayback
+    ports:
+      - 8080:8080
+    volumes:
+        - ./wayback/config.yaml:/webarchive/config.yaml
+        - collections:/webarchive/collections/
+        - sources:/webarchive/sources/
+    environment:
+      INIT_COLLECTION: gathering-org
+
+  # Container for use with scheduled crawl configurations.
+  #
+  # Does nothing by default.
+  #
+  # 1. Add one or more custom configs to the `browsertrix-crawler` folder
+  # 2. Add cron-job that runs this container with docker-compose and a command like `crawl --config /app/configs/my-crawl-config.yaml`
+  crawler:
+    image: webrecorder/browsertrix-crawler
+    command: 'echo "Crawler exiting, no commands to run"'
+    ports:
+      - 9037:9037
+    volumes:
+        - ./browsertrix-crawler/configs:/app/configs
+        - collections:/crawls/collections
+
+volumes:
+  # Change to whatever local volume config is used for collections (if any)
+  collections:
+    driver_opts:
+      type: none
+      device: ${PWD}/collections
+      o: bind
+  sources:
