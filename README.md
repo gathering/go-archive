@@ -6,6 +6,17 @@ public sources (provided by us).
 
 Heavily based on services provided by [Webrecorder project](https://github.com/webrecorder)
 
+## Run locally
+
+1. `docker-compose up`
+2. Visit `localhost:8080` in browser (example, since default search is a bit tricky, `http://localhost:8080/all/https://www.gathering.org/tg21/`)
+
+To capture a new collection run this, replacing `<your url>` with the page you want to start crawling
+
+`docker-compose run -rm crawler crawl --url <your url> --generateWACZ --collection my-new-collection`
+
+This is essentially the same steps as [Browsertrix crawler - getting started](https://github.com/webrecorder/browsertrix-crawler#getting-started), but with our default volumes
+
 ## Basic structure
 
 ### Services
@@ -37,3 +48,10 @@ in a variety of different setups without requiring a bunch of manual setup
 steps.
 
 Add additional repositories or other sources there.
+
+## Adding new "permanent" crawl target
+
+1. Add one or more custom configs to the `browsertrix-crawler/configs` folder
+2. Add cron-job that runs this container with docker-compose and a command like `crawl --config /app/configs/my-crawl-config.yaml`
+
+Full example command (without scheduling): `docker-compose run -rm crawler crawl --config /app/configs/my-crawl-config.yaml`

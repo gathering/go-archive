@@ -17,10 +17,7 @@ services:
 
   # Container for use with scheduled crawl configurations.
   #
-  # Does nothing by default.
-  #
-  # 1. Add one or more custom configs to the `browsertrix-crawler` folder
-  # 2. Add cron-job that runs this container with docker-compose and a command like `crawl --config /app/configs/my-crawl-config.yaml`
+  # Does nothing by default, see readme for details on usage.
   crawler:
     image: webrecorder/browsertrix-crawler
     command: 'echo "Crawler exiting, no commands to run"'
