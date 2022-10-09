@@ -1,8 +1,9 @@
 # The Gathering - Archive
 
+
 A Wayback-machine (Internet Archive) style archive service of gathering.org.
 Relies on one or more WARC collections under the hood that are fetched from
-public sources (provided by us).
+public sources (git repos provided by us).
 
 Heavily based on services provided by [Webrecorder project](https://github.com/webrecorder)
 
