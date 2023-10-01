@@ -25,6 +25,7 @@ services:
       - 9037:9037
     volumes:
         - ./browsertrix-crawler/configs:/app/configs
+        - ./profiles:/crawls/profiles
         - collections:/crawls/collections
 
 volumes:

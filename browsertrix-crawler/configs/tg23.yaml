@@ -1,6 +1,32 @@
 seeds:
+  # Crawl content available via navigation and frontpage
   - url: https://www.gathering.org/tg23/
-    include: www.gathering.org/(tg23|api)
+    # Kind of broken in TG23 case due to it mainly containing relative paths (that crawler ignores)
+    sitemap: https://www.gathering.org/api/sitemap.xml
+  # Kind of hacky workaround for broken sitemap and search buttons not using proper urls
+  - url: https://www.gathering.org/tg23/search?page=1&tab=pages
+  - url: https://www.gathering.org/tg23/search?page=2&tab=pages
+  - url: https://www.gathering.org/tg23/search?page=3&tab=pages
+  - url: https://www.gathering.org/tg23/search?page=1&tab=articles
+  - url: https://www.gathering.org/tg23/search?page=2&tab=articles
+  - url: https://www.gathering.org/tg23/search?page=3&tab=articles
+  - url: https://www.gathering.org/tg23/search?page=4&tab=articles
+  - url: https://www.gathering.org/tg23/search?page=5&tab=articles
+  - url: https://www.gathering.org/tg23/search?page=6&tab=articles
+  - url: https://www.gathering.org/tg23/search?page=7&tab=articles
+  - url: https://www.gathering.org/tg23/search?page=8&tab=articles
+  - url: https://www.gathering.org/tg23/search?page=9&tab=articles
+include:
+  # Basic pages
+  - www.gathering.org/tg23
+  # Uploads
+  - www.gathering.org/api/wp-content
+  # Rest API routes (if needed)
+  - www.gathering.org/api/?rest_route
+
+# Block calls to our tracking service
+blockRules:
+   - url: matomo.gathering.org
 
 collection: tg23
 
@@ -10,6 +36,8 @@ generateCDX: true
 combineWARCs: true
 saveState: always
 workers: 2
+# Minimal profile that includes consent answers
+profile: /crawls/profiles/tg23.tar.gz
 
 # Make "live" crawling view available at 9037
 newContext: window
