@@ -14,7 +14,7 @@ Heavily based on services provided by [Webrecorder project](https://github.com/w
 
 To capture a new collection run this, replacing `<your url>` with the page you want to start crawling
 
-`docker-compose run crawler crawl --url <your url> --generateWACZ --collection my-new-collection`
+`docker-compose run --rm crawler crawl --url <your url> --generateWACZ --collection my-new-collection`
 
 This is essentially the same steps as [Browsertrix crawler - getting started](https://github.com/webrecorder/browsertrix-crawler#getting-started), but with our default volumes
 
@@ -55,7 +55,7 @@ Add additional repositories or other sources there.
 1. Add one or more custom configs to the `browsertrix-crawler/configs` folder
 2. Add cron-job that runs this container with docker-compose and a command like `crawl --config /app/configs/my-crawl-config.yaml`
 
-Full example command (without scheduling): `docker-compose run crawler crawl --config /app/configs/my-crawl-config.yaml`
+Full example command (without scheduling): `docker-compose run --rm crawler crawl --config /app/configs/my-crawl-config.yaml`
 
 ## Known issues and debugging
 
