@@ -56,3 +56,24 @@ Add additional repositories or other sources there.
 2. Add cron-job that runs this container with docker-compose and a command like `crawl --config /app/configs/my-crawl-config.yaml`
 
 Full example command (without scheduling): `docker-compose run crawler crawl --config /app/configs/my-crawl-config.yaml`
+
+## Known issues and debugging
+
+### Crawling container hangs
+
+The crawling container will consume "a lot" of system resources. In some
+circumstances or configurations leading to container or VM running it to crash
+or hang.
+
+Exact mitigation steps will vary based on setup, but generally check if disk
+space, memory, or CPU available to container (or the container runner itself)
+can be increased. Or if another runner can be used.
+
+Ex. on M1 Mac using Colima the following fixes were used
+- Delete existing colima config `colima delete`
+- Create a new colima config `colima start --config`
+    - Higher CPU
+    - More memory
+    - More disk space
+    - Change VM type from `qemu` to `vz` \* Most likely the most important change
+    - Change mount type from `sshd` to `virtiofs` (side effect of VM type)
