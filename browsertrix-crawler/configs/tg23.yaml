@@ -1,0 +1,20 @@
+seeds:
+  - url: https://www.gathering.org/tg23/
+    include: www.gathering.org/(tg23|api)
+
+collection: tg23
+
+behaviors: autoscroll,autoplay,autofetch,siteSpecific
+waitUntil: load,networkidle0
+generateCDX: true
+combineWARCs: true
+saveState: always
+workers: 2
+
+# Make "live" crawling view available at 9037
+newContext: window
+screencastPort: 9037
+
+warcinfo:
+  operator: The Gathering
+  hostname: gathering.org
