@@ -1,0 +1,34 @@
+# TODO: Adjust for new TG24 (and beyond) site url structure
+seeds:
+  # Crawl content available via navigation and frontpage
+  - url: https://www.gathering.org
+include:
+  # Basic pages
+  - www.gathering.org
+  # Uploads
+  - www.gathering.org/api/wp-content
+  # Rest API routes (if needed)
+  - www.gathering.org/api/?rest_route
+
+# Block calls to our tracking service
+blockRules:
+   - url: matomo.gathering.org
+
+collection: tg24
+
+behaviors: autoscroll,autoplay,autofetch,siteSpecific
+waitUntil: load,networkidle0
+generateCDX: true
+combineWARCs: true
+saveState: always
+workers: 4
+# Minimal profile that includes consent answers
+profile: /crawls/profiles/tg24.tar.gz
+
+# Make "live" crawling view available at 9037
+newContext: window
+screencastPort: 9037
+
+warcinfo:
+  operator: The Gathering
+  hostname: gathering.org
