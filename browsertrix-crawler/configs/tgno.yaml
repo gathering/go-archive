@@ -4,14 +4,14 @@
 # each year.
 seeds:
   # Crawl content available via navigation and frontpage
-  - url: https://www.gathering.org
+  - url: https://www.tg.no
 include:
   # Basic pages
-  - www.gathering.org
+  - www.tg.no
 
 # Block calls to our tracking service
 blockRules:
-   - url: matomo.gathering.org
+  - url: matomo.gathering.org
 
 collection: tgno
 
@@ -31,4 +31,4 @@ screencastPort: 9037
 
 warcinfo:
   operator: The Gathering
-  hostname: tg.no
+  hostname: www.tg.no
