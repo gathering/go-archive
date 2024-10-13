@@ -1,4 +1,3 @@
-# TODO: Adjust for new TG24 (and beyond) site url structure
 seeds:
   # Crawl content available via navigation and frontpage
   - url: https://www.gathering.org

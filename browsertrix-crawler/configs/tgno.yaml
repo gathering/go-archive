@@ -1,0 +1,34 @@
+# Config intended to be used on new tg.no once launched. This page differs from
+# previous iterations (in practice, even if not in theory) by being a single
+# site gradually updated with new content and styling, rather than a new site
+# each year.
+seeds:
+  # Crawl content available via navigation and frontpage
+  - url: https://www.tg.no
+include:
+  # Basic pages
+  - www.tg.no
+
+# Block calls to our tracking service
+blockRules:
+  - url: matomo.gathering.org
+
+collection: tgno
+
+behaviors: autoscroll,autoplay,autofetch,siteSpecific
+waitUntil: load,networkidle0
+generateCDX: true
+combineWARCs: true
+saveState: always
+workers: 4
+# TODO: Remove it not needed, hopefully we won't need consent flow on new site
+# Minimal profile that includes consent answers
+# profile: /crawls/profiles/tg24.tar.gz
+
+# Make "live" crawling view available at 9037
+newContext: window
+screencastPort: 9037
+
+warcinfo:
+  operator: The Gathering
+  hostname: www.tg.no
