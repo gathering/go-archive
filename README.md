@@ -38,7 +38,7 @@ a "landing page" with shortcuts to per year gathering.org versions. The landing
 page is useful since we tend to change url each year and we don't want to force
 users to know this and apply the right search terms.
 
-(Landing page is not in place yet)
+[TG.no live version](https://archive.tg.no/all/*/https://www.tg.no/)
 
 ## Adding new archive sources
 
