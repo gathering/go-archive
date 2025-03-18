@@ -9,7 +9,7 @@ COPY --from=builder /usr/bin/git /usr/bin/git-lfs /usr/bin/
 # Workaround for: https://github.com/moby/moby/issues/37965
 RUN true
 COPY ./wayback/startup.sh /
-COPY ./config.yaml /webarchive/config.yaml
+COPY ./wayback/config.yaml /webarchive/config.yaml
 
 ENTRYPOINT ["/startup.sh"]
 CMD ["wayback"]
