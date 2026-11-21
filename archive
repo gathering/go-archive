@@ -1,0 +1,329 @@
+#!/usr/bin/env bash
+# Entrypoint for local use of the archive tooling. See `./archive help`.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+# Settings from .env, but variables already set in the environment win
+if [ -f .env ]; then
+  _keep_dir=${ARCHIVE_DIR-} _keep_dir_set=${ARCHIVE_DIR+x} _keep_arch=${ARCHIVES-} _keep_arch_set=${ARCHIVES+x}
+  set -a; . ./.env; set +a
+  [ -z "$_keep_dir_set" ] || ARCHIVE_DIR=$_keep_dir
+  [ -z "$_keep_arch_set" ] || ARCHIVES=$_keep_arch
+fi
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  ./archive serve [name ...]                 Serve archives on http://localhost:8080
+                                             (default: ARCHIVES from .env, empty = all years)
+  ./archive crawl [full] [--config NAME] [--label TEXT] [--watch] [-- crawler args]
+                                             Crawl into work/<timestamp>-<label>/
+                                             --watch: live view at http://localhost:9037
+  ./archive crawl resume [WORKDIR] [--watch] Continue an unfinished crawl (default: the newest one)
+  ./archive crawl status [WORKDIR]           Show progress of one crawl, or list all
+  ./archive publish WORKDIR [--collection NAME] [--force]
+                                             Copy WARCs and the crawl record from a finished
+                                             crawl into $ARCHIVE_DIR/<collection>
+                                             (--force: also publish an unfinished crawl)
+
+Examples:
+  ./archive serve tgno
+  ./archive crawl --label tg27-opening
+  ./archive crawl --label test -- --limit 10
+  ./archive crawl resume
+  ./archive publish work/20261121-1200-tg27-opening
+
+Settings are read from .env (copy env.example): ARCHIVE_DIR, ARCHIVES.
+USAGE
+}
+
+die() { echo "error: $*" >&2; exit 1; }
+
+json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
+# --- crawl helpers ----------------------------------------------------------
+
+# Sets CONF_REL (path below browsertrix-crawler/configs) and CONF_COLLECTION for a config name.
+# The crawler writes to /crawls/collections/<collection>, so the crawl dir is mounted there.
+resolve_config() {
+  CONF_REL="$1.yaml"
+  [ -f "browsertrix-crawler/configs/$CONF_REL" ] || CONF_REL="archive/$1.yaml"
+  [ -f "browsertrix-crawler/configs/$CONF_REL" ] || die "no config $1.yaml in browsertrix-crawler/configs (or archive/)"
+  CONF_COLLECTION=$(awk '$1 == "collection:" {print $2; exit}' "browsertrix-crawler/configs/$CONF_REL")
+  [ -n "$CONF_COLLECTION" ] || die "no 'collection:' set in $CONF_REL"
+}
+
+# Newest crawler state file of a crawl dir (written by the crawler under crawls/)
+latest_state() { ls -t "$1"/crawls/*.yaml 2>/dev/null | head -1 || true; }
+
+# Prints "finished queued pending failed" counts from a crawler state file
+state_counts() {
+  awk '
+    /^state:/ { ins = 1; next }
+    ins && /^  [A-Za-z]+:/ { key = $1; sub(/:$/, "", key); next }
+    ins && /^    - / { n[key]++ }
+    END { printf "%d %d %d %d\n", n["finished"], n["queued"], n["pending"], n["failed"] }
+  ' "$1"
+}
+
+# Prints a one-word state of a crawl dir: unfinished, finished or no-state
+crawl_state() {
+  local state f q p fl
+  state=$(latest_state "$1")
+  [ -n "$state" ] || { echo no-state; return; }
+  read -r f q p fl <<<"$(state_counts "$state")"
+  if [ $((q + p)) -gt 0 ]; then echo unfinished; else echo finished; fi
+}
+
+# The crawl command line (config name, label, extra args) is saved so a crawl can be resumed
+save_params() {
+  local dir=$1 config=$2 label=$3; shift 3
+  { echo "config=$config"; echo "label=$label"; [ $# -eq 0 ] || printf '%s\n' "$@"; } > "$dir/crawl-params.txt"
+}
+
+# Sets P_CONFIG, P_LABEL and the P_ARGS array from a crawl-params.txt file
+read_params() {
+  P_ARGS=()
+  local line n=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case $n in
+      0) P_CONFIG=${line#config=} ;;
+      1) P_LABEL=${line#label=} ;;
+      *) P_ARGS+=("$line") ;;
+    esac
+    n=$((n + 1))
+  done < "$1"
+}
+
+image_digest() {
+  local img
+  img=$(docker compose --profile crawl config --images 2>/dev/null | grep browsertrix-crawler | head -1 || true)
+  docker image inspect "$img" --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{else}}{{.Id}}{{end}}' 2>/dev/null || echo "$img"
+}
+
+tooling_commit() { git rev-parse --short HEAD 2>/dev/null || echo unknown; }
+
+# Writes record.json into the crawl dir with what the crawler's own output
+# (state yaml, pages/*.jsonl, logs) does not contain
+write_record() {
+  local dir=$1 label=$2 config=$3; shift 3
+  local dirty args="" a
+  if [ -z "$(git status --porcelain 2>/dev/null)" ]; then dirty=false; else dirty=true; fi
+  for a in "$@"; do args="$args${args:+, }\"$(json_escape "$a")\""; done
+  cat > "$dir/record.json" <<JSON
+{
+  "label": "$(json_escape "$label")",
+  "config": "$(json_escape "$config")",
+  "crawler_image": "$(json_escape "$(image_digest)")",
+  "tooling_commit": "$(tooling_commit)",
+  "tooling_dirty": $dirty,
+  "extra_args": [$args]
+}
+JSON
+}
+
+# run_crawler DIR COLLECTION WATCH CONFIG_IN_CONTAINER [crawler args...]; sets CRAWL_RC
+run_crawler() {
+  local dir=$1 collection=$2 watch=$3 config=$4; shift 4
+
+  # No TTY (CI, pipes): compose run would fail without -T. (The ${arr[@]+...} form keeps
+  # empty arrays working on macOS bash 3.2 with set -u.)
+  local tty_flag=()
+  [ -t 0 ] || tty_flag=(-T)
+
+  # Live view: publish the screencast port (compose run ignores service ports by default)
+  local run_flags=() crawl_flags=()
+  if [ "$watch" = 1 ]; then
+    run_flags=(--service-ports)
+    crawl_flags=(--screencastPort 9037)
+    echo "Live view: http://localhost:9037"
+  fi
+
+  # Ctrl-C goes to the container (graceful stop, state saved); this script carries on
+  trap : INT
+  CRAWL_RC=0
+  CRAWL_DIR="$PWD/$dir" CRAWL_COLLECTION="$collection" \
+    docker compose run --rm ${tty_flag[@]+"${tty_flag[@]}"} ${run_flags[@]+"${run_flags[@]}"} crawler crawl --config "$config" ${crawl_flags[@]+"${crawl_flags[@]}"} "$@" || CRAWL_RC=$?
+  trap - INT
+}
+
+# Final message of crawl and resume, with the next command to run
+crawl_summary() {
+  local dir=$1 rc=$2 state
+  state=$(crawl_state "$dir")
+  echo
+  if [ "$state" = unfinished ]; then
+    echo "Crawl not finished (exit $rc): $dir"
+    echo "Continue with:   ./archive crawl resume $dir"
+    echo "Or publish what exists so far (WARCs are in $dir/archive): ./archive publish $dir --force"
+  elif [ "$state" = no-state ]; then
+    echo "Crawl stopped (exit $rc) before any state was saved: $dir"
+    echo "It cannot be resumed. WARCs written so far are in $dir/archive"
+  else
+    echo "Crawl finished: $dir"
+    echo "Publish with: ./archive publish $dir"
+  fi
+}
+
+cmd_serve() {
+  if [ $# -gt 0 ]; then export ARCHIVES="$*"; fi
+  exec docker compose up --build web
+}
+
+cmd_crawl() {
+  case "${1:-}" in
+    resume) shift; cmd_resume "$@"; return ;;
+    status) shift; cmd_status "$@"; return ;;
+    full) shift ;;
+  esac
+  local config=tgno label=full watch=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --config) config=${2:?--config needs a name}; shift 2 ;;
+      --label) label=${2:?--label needs a value}; shift 2 ;;
+      --watch) watch=1; shift ;;
+      --) shift; break ;;
+      *) die "unknown crawl option: $1 (extra crawler args go after --)" ;;
+    esac
+  done
+  resolve_config "$config"
+
+  local dir="work/$(date +%Y%m%d-%H%M)-$label"
+  [ ! -e "$dir" ] || die "$dir already exists"
+  mkdir -p "$dir"
+  save_params "$dir" "$config" "$label" "$@"
+  echo "Crawling with config '$config' into $dir"
+  echo "Publish afterwards with: ./archive publish $dir"
+
+  run_crawler "$dir" "$CONF_COLLECTION" "$watch" "/app/configs/$CONF_REL" "$@"
+  write_record "$dir" "$label" "$CONF_REL" "$@"
+  crawl_summary "$dir" "$CRAWL_RC"
+  return "$CRAWL_RC"
+}
+
+cmd_resume() {
+  local dir="" watch=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --watch) watch=1; shift ;;
+      -*) die "unknown resume option: $1" ;;
+      *) dir=${1%/}; shift ;;
+    esac
+  done
+
+  if [ -z "$dir" ]; then
+    local d
+    for d in $(ls -dt work/*/ 2>/dev/null); do
+      if [ -f "$d/crawl-params.txt" ] && [ "$(crawl_state "$d")" = unfinished ]; then dir=${d%/}; break; fi
+    done
+    [ -n "$dir" ] || die "no unfinished crawl found in work/, see ./archive crawl status"
+    echo "Resuming the newest unfinished crawl: $dir"
+  fi
+  [ -f "$dir/crawl-params.txt" ] || die "$dir is not a crawl dir made by ./archive crawl"
+
+  local state f q p fl
+  state=$(latest_state "$dir")
+  [ -n "$state" ] || die "$dir has no saved crawler state, nothing to resume from"
+  read -r f q p fl <<<"$(state_counts "$state")"
+  [ $((q + p)) -gt 0 ] || die "$dir is already finished (finished $f, failed $fl)"
+
+  read_params "$dir/crawl-params.txt"
+  resolve_config "$P_CONFIG"
+  echo "State $(basename "$state"): finished $f, queued $q, pending $p"
+  echo "Config '$P_CONFIG', extra args: ${P_ARGS[*]-none}"
+
+  if [ -f "$dir/record.json" ]; then
+    local old_commit old_image
+    old_commit=$(sed -n 's/.*"tooling_commit": "\([^"]*\)".*/\1/p' "$dir/record.json")
+    old_image=$(sed -n 's/.*"crawler_image": "\([^"]*\)".*/\1/p' "$dir/record.json")
+    [ "$old_commit" = "$(tooling_commit)" ] || echo "note: this repo changed since the crawl started ($old_commit -> $(tooling_commit))"
+    [ "$old_image" = "$(image_digest)" ] || echo "note: crawler image differs from the one the crawl started with"
+  fi
+
+  # The state file holds the config as run, so it is the config for the resumed crawl
+  run_crawler "$dir" "$CONF_COLLECTION" "$watch" "/crawls/collections/$CONF_COLLECTION/crawls/$(basename "$state")" ${P_ARGS[@]+"${P_ARGS[@]}"}
+  [ -f "$dir/record.json" ] || write_record "$dir" "$P_LABEL" "$CONF_REL" ${P_ARGS[@]+"${P_ARGS[@]}"}
+  crawl_summary "$dir" "$CRAWL_RC"
+  return "$CRAWL_RC"
+}
+
+cmd_status() {
+  local dir=${1:-} d state f q p fl
+  if [ -n "$dir" ]; then
+    dir=${dir%/}
+    [ -d "$dir" ] || die "$dir not found"
+    state=$(latest_state "$dir")
+    [ -n "$state" ] || { echo "$dir: no saved crawler state"; return; }
+    read -r f q p fl <<<"$(state_counts "$state")"
+    echo "$dir: $(crawl_state "$dir")"
+    echo "  finished $f, queued $q, pending $p, failed $fl"
+    echo "  state file $(basename "$state"), $(ls "$dir"/archive 2>/dev/null | wc -l | tr -d ' ') WARC files"
+    return
+  fi
+  local any=0
+  printf '%-34s %-11s %s\n' CRAWL STATE "FINISHED/QUEUED/PENDING/FAILED"
+  for d in $(ls -dt work/*/ 2>/dev/null); do
+    d=${d%/}; any=1
+    state=$(latest_state "$d")
+    if [ -n "$state" ]; then
+      read -r f q p fl <<<"$(state_counts "$state")"
+      printf '%-34s %-11s %s/%s/%s/%s\n' "$d" "$(crawl_state "$d")" "$f" "$q" "$p" "$fl"
+    else
+      printf '%-34s %-11s\n' "$d" no-state
+    fi
+  done
+  [ "$any" = 1 ] || echo "(no crawls in work/)"
+}
+
+cmd_publish() {
+  local dir=${1:-}; shift || true
+  local collection=tgno force=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --collection) collection=${2:?--collection needs a name}; shift 2 ;;
+      --force) force=1; shift ;;
+      *) die "unknown publish option: $1" ;;
+    esac
+  done
+  dir=${dir%/}
+  [ -n "$dir" ] || die "publish needs a work dir, see ./archive help"
+  [ -d "$dir/archive" ] || die "$dir/archive not found, is that a crawl directory?"
+  [ -n "${ARCHIVE_DIR:-}" ] || die "ARCHIVE_DIR is not set, see env.example"
+  [ -d "$ARCHIVE_DIR/$collection" ] || die "$ARCHIVE_DIR/$collection not found"
+
+  local cstate
+  cstate=$(crawl_state "$dir")
+  if [ "$cstate" != finished ]; then
+    if [ "$force" = 1 ]; then
+      echo "warning: $dir is not finished ($cstate), publishing anyway"
+    else
+      die "$dir is not finished ($cstate). Continue it with './archive crawl resume $dir', or publish as is with --force"
+    fi
+  fi
+
+  local dest="$ARCHIVE_DIR/$collection/archive"
+  mkdir -p "$dest"
+  echo "Copying WARCs from $dir/archive to $dest"
+  # -n: never overwrite an existing WARC
+  cp -vn "$dir"/archive/*.warc.gz "$dest"/
+
+  # Crawl record: the crawler's own state file (config + finished urls), the page
+  # lists, and record.json (what those do not say). Indexes are not copied,
+  # pywb builds them from the WARCs.
+  local rec="$ARCHIVE_DIR/$collection/records/$(basename "$dir")" state
+  mkdir -p "$rec"
+  state=$(latest_state "$dir")
+  if [ -n "$state" ]; then cp "$state" "$rec/"; else echo "warning: no crawl state file in $dir/crawls"; fi
+  cp "$dir"/pages/*.jsonl "$rec/" 2>/dev/null || echo "warning: no pages/*.jsonl in $dir"
+  if [ -f "$dir/record.json" ]; then cp "$dir/record.json" "$rec/"; else echo "warning: no record.json in $dir"; fi
+  echo "Crawl record in $rec"
+  echo "Done. Review and commit in $ARCHIVE_DIR (WARCs go through git lfs)."
+}
+
+case "${1:-help}" in
+  serve) shift; cmd_serve "$@" ;;
+  crawl) shift; cmd_crawl "$@" ;;
+  publish) shift; cmd_publish "$@" ;;
+  help|-h|--help) usage ;;
+  *) usage >&2; exit 1 ;;
+esac

@@ -1,6 +1,7 @@
-version: '3'
-
+# Normal use goes through ./archive (see README). Settings come from .env
+# (copy env.example), see that file for ARCHIVE_DIR and ARCHIVES.
 services:
+  # Replay: pywb serving the archives on http://localhost:8080
   web:
     build:
       context: .
@@ -8,31 +9,30 @@ services:
     command: wayback
     ports:
       - 8080:8080
-    volumes:
-        - ./wayback/config.yaml:/webarchive/config.yaml
-        - collections:/webarchive/collections/
-        - sources:/webarchive/sources/
     environment:
-      INIT_COLLECTION: gathering-org
+      # Empty = all years from git (production behaviour)
+      ARCHIVES: ${ARCHIVES:-}
+    volumes:
+      - ./wayback/config.yaml:/webarchive/config.yaml
+      # Local archives, used instead of git when <name> exists and is not empty
+      - ${ARCHIVE_DIR:-./collections}:/local-archives
+      - collections:/webarchive/collections
+      - sources:/webarchive/sources
 
-  # Container for use with scheduled crawl configurations.
-  #
-  # Does nothing by default, see readme for details on usage.
+  # Capture: only started explicitly (docker compose run --rm crawler ...), normally via ./archive crawl
   crawler:
-    image: webrecorder/browsertrix-crawler
-    command: 'echo "Crawler exiting, no commands to run"'
+    image: webrecorder/browsertrix-crawler:1.12.4
+    profiles: [crawl]
+    command: crawl --config /app/configs/${CRAWL_COLLECTION:-tgno}.yaml
+    # Live view of a running crawl, see ./archive crawl --watch. Only published
+    # by docker compose run when --service-ports is passed (./archive does that).
     ports:
       - 9037:9037
     volumes:
-        - ./browsertrix-crawler/configs:/app/configs
-        - ./profiles:/crawls/profiles
-        - collections:/crawls/collections
+      - ./browsertrix-crawler/configs:/app/configs
+      # One staging directory per crawl, set by ./archive
+      - ${CRAWL_DIR:-./work/default}:/crawls/collections/${CRAWL_COLLECTION:-tgno}
 
 volumes:
-  # Change to whatever local volume config is used for collections (if any)
   collections:
-    driver_opts:
-      type: none
-      device: ${PWD}/collections
-      o: bind
   sources:
