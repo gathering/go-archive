@@ -1,0 +1,5 @@
+# Only the files wayback/Dockerfile copies are needed.
+# Without this the whole build context (collections/, work/, .git) is uploaded to Docker.
+*
+!wayback/startup.sh
+!wayback/config.yaml

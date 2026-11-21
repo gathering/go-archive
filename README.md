@@ -1,79 +1,136 @@
 # The Gathering - Archive
 
+A Wayback-machine (Internet Archive) style archive of our web pages
+(gathering.org, and tg.no from TG25 on), served at https://archive.tg.no.
+All captures of tg.no: [archive.tg.no](https://archive.tg.no/all/*/https://www.tg.no/)
 
-A Wayback-machine (Internet Archive) style archive service of gathering.org.
-Relies on one or more WARC collections under the hood that are fetched from
-public sources (git repos provided by us).
+Built on the [Webrecorder](https://github.com/webrecorder) tools:
 
-Heavily based on services provided by [Webrecorder project](https://github.com/webrecorder)
+- **pywb**: replays WARC archives in a Wayback-style web interface
+- **browsertrix-crawler**: crawls a site into WARC files
 
-## Run locally
+This repo is the **tooling**. The archives themselves live in separate repos
+(WARC files in Git LFS), one per year, for example
+[go-archive-tgno](https://github.com/gathering/go-archive-tgno) for tg.no.
 
-1. `docker-compose up`
-2. Visit `localhost:8080` in browser (example, since default search is a bit tricky, `http://localhost:8080/all/https://www.gathering.org/tg21/`)
+## Quick start
 
-To capture a new collection run this, replacing `<your url>` with the page you want to start crawling
+Requires Docker with Compose (and Git LFS for the archive repos).
 
-`docker-compose run --rm crawler crawl --url <your url> --generateWACZ --collection my-new-collection`
+```
+cp env.example .env     # then edit, see below
+./archive serve         # http://localhost:8080
+```
 
-This is essentially the same steps as [Browsertrix crawler - getting started](https://github.com/webrecorder/browsertrix-crawler#getting-started), but with our default volumes
+`.env` settings:
 
-## Basic structure
+| Variable | Meaning |
+|---|---|
+| `ARCHIVE_DIR` | Directory containing collection folders, for example your clone of `go-archive-tgno` (which contains `tgno/`). Default `./collections`. |
+| `ARCHIVES` | Which archives to serve. Empty means all years (`tg21 tg22 tg23 tg24 tgno`), like production. |
 
-### Services
+For each name in `ARCHIVES`, a non-empty `ARCHIVE_DIR/<name>` is served as is.
+Anything else is cloned from `github.com/gathering/go-archive-<name>`.
 
-- web service - Uses `Webrecorder/pywb` to expose a web interface that can be used to navigate archive
-- crawler service - Uses `Webrecorder/browsertrix-crawler` to (on demand) crawl one or more urls and generate a WARC collection from it
-- proxy service - Not in place, would act as entrypoint for web service (nginx, apache, or similar)
+Try for example `http://localhost:8080/tgno/https://www.tg.no/`, or
+`http://localhost:8080/all/<url>` which searches across all loaded archives.
 
-### Logic
+`./archive serve tg24 tgno` overrides `ARCHIVES` for one run. Variables set in
+the environment take precedence over `.env`, e.g. `ARCHIVE_DIR=/tmp/x ./archive publish ...`.
 
-On startup web service runs `wayback/startup.sh` script. This populates the
-`sources` folder with WARC collections from various sources (such as our
-archive github repositories) and copies the relevant files into `collections`
-for use by web service / `pywb`.
+## Running a crawl
 
-The web service expose pages to search and navigate through archive, as well as
-a "landing page" with shortcuts to per year gathering.org versions. The landing
-page is useful since we tend to change url each year and we don't want to force
-users to know this and apply the right search terms.
+```
+./archive crawl --label tg27-opening      # full crawl, config tgno.yaml
+./archive crawl --label test -- --limit 10  # arguments after -- go to the crawler
+./archive crawl --config tg24             # a historical config
+```
 
-[TG.no live version](https://archive.tg.no/all/*/https://www.tg.no/)
+Add `--watch` to follow a crawl in the browser at http://localhost:9037. It
+is the crawler's built-in screencast: a grid of live screenshots, one per
+worker. Useful for a quick check that pages actually load; the log output
+remains the better source for details.
 
-## Adding new archive sources
+Each crawl runs in its own staging directory `work/<timestamp>-<label>/`
+(gitignored). Nothing is written to the archive repo while crawling.
 
-A clean version of this archive does not have any contents of it's own. These
-are instead fetched and/or updated on startup via `wayback/startup.sh`. This is
-done instead of expecting a pre-populated volume on first run, to make it work
-in a variety of different setups without requiring a bunch of manual setup
-steps.
+### Stopping and resuming
 
-Add additional repositories or other sources there.
+A crawl can be stopped at any time (Ctrl-C, or `docker stop`): the crawler saves
+its state before exiting. Continue it later with:
 
-## Adding new "permanent" crawl target
+```
+./archive crawl resume            # the newest unfinished crawl
+./archive crawl resume work/<dir> # a specific one
+./archive crawl status            # list crawls and their progress
+```
 
-1. Add one or more custom configs to the `browsertrix-crawler/configs` folder
-2. Add cron-job that runs this container with docker-compose and a command like `crawl --config /app/configs/my-crawl-config.yaml`
+Resume uses the saved state file, and reuses the config and the extra crawler
+arguments (such as `--limit`) from the original command. New WARCs are added to
+the same crawl directory, so publish it once, when it is finished.
 
-Full example command (without scheduling): `docker-compose run --rm crawler crawl --config /app/configs/my-crawl-config.yaml`
+Resume works from the crawl directory in `work/`, so it needs the same machine
+and the directory kept. If the crawler was killed hard (`docker kill`, power
+loss) it resumes from its last periodic save and crawls the pages after that
+again, which gives duplicate captures but no gaps.
 
-## Known issues and debugging
+`publish` refuses an unfinished crawl; `--force` publishes what exists.
 
-### Crawling container hangs
+When the crawl has finished:
 
-The crawling container will consume "a lot" of system resources. In some
-circumstances or configurations leading to container or VM running it to crash
-or hang.
+```
+./archive publish work/<timestamp>-<label>
+```
 
-Exact mitigation steps will vary based on setup, but generally check if disk
-space, memory, or CPU available to container (or the container runner itself)
-can be increased. Or if another runner can be used.
+This copies the new WARC files into `ARCHIVE_DIR/tgno/archive/` (never
+overwriting existing ones) and writes a small record of the crawl to
+`ARCHIVE_DIR/tgno/records/<crawl>/`, built from files the crawler already
+produces:
 
-Ex. on M1 Mac using Colima the following fixes were used
-- Delete existing colima config `colima delete`
-- Create a new colima config `colima start --config`
-    - Higher CPU
-    - More memory
-    - More disk space
-    - Change VM type from `qemu` to `vz` \* Most likely the most important change
-    - Change mount type from `sshd` to `virtiofs` (side effect of VM type)
+- the crawler's state file (`*.yaml`): the config as run, plus the finished URLs,
+- `pages.jsonl` and `extraPages.jsonl`: every crawled page with title and status,
+- `record.json`: what the others don't say: label, config name, crawler image
+  digest, commit of this repo (and whether it had uncommitted changes), and
+  extra crawler arguments.
+
+Then commit and push in the archive repo (`*.warc.gz` is tracked by Git LFS).
+Logs, browser profile and indexes are not copied; pywb builds indexes from the
+WARCs when serving.
+
+### Milestone crawl checklist
+
+1. `git pull` in the archive repo, `git pull` here.
+2. `./archive crawl --label <milestone>`; wait for it to finish.
+3. `./archive publish work/<dir>`.
+4. `./archive serve tgno` and spot check key pages (front page, schedule, map, a few sub pages).
+5. Commit only the new WARC files and the record in the archive repo, message like `feat: tg27 opening crawl`, and push.
+
+## Crawl configurations
+
+`browsertrix-crawler/configs/tgno.yaml` is the current config for tg.no.
+Older configs (`tg22`, `tg23`, `tg24`, `go-example`) are kept for reference in
+`browsertrix-crawler/configs/archive/`, see the README there. Adding a new
+target: copy a config, set `collection:` and use `./archive crawl --config <name>`.
+
+Options are documented in the
+[browsertrix-crawler docs](https://crawler.docs.browsertrix.com/user-guide/cli-options/).
+
+## How the archive service works
+
+The web image is built from `wayback/Dockerfile` (pywb plus git and git-lfs)
+and published to ghcr by GitHub Actions on pushes to `main`. At startup,
+`wayback/startup.sh`:
+
+1. reads `ARCHIVES` (default: all years),
+2. for each archive uses a mounted local directory, or shallow-clones/updates the archive repo,
+3. links the collection into pywb's `collections/` folder,
+4. starts pywb (`wayback/config.yaml`; collection `all` searches across every collection).
+
+Production runs this image as a single container serving all years. It is
+updated by pulling the new image manually.
+
+## Known issues and notes
+
+See [docs/debugging.md](docs/debugging.md) for crawler hangs on Mac (Colima),
+the `diskUtilization` workaround, leftover state between crawl runs, consent
+dialogs showing up in archived pages (browser profiles), and useful queries.

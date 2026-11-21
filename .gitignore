@@ -1,1 +1,12 @@
-collections
+# Local archive collections (served by pywb); placeholder keeps the folder in git
+collections/*
+!collections/.donotdelete
+
+# Local config and crawl staging
+.env
+work/
+
+# Browser profiles can contain cookies and credentials
+profiles/
+
+.DS_Store
