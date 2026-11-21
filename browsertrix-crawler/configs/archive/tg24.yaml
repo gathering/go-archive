@@ -21,7 +21,7 @@ generateCDX: true
 combineWARCs: true
 saveState: always
 workers: 4
-# Minimal profile that includes consent answers
+# Minimal profile that includes consent answers (the profile file is not in the repo, see docs/debugging.md)
 profile: /crawls/profiles/tg24.tar.gz
 
 # Make "live" crawling view available at 9037

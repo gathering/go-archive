@@ -1,10 +1,14 @@
-# Config intended to be used on new tg.no once launched. This page differs from
-# previous iterations (in practice, even if not in theory) by being a single
-# site gradually updated with new content and styling, rather than a new site
-# each year.
+# Config intended to be used on currnet tg.no (at the time of writing). The
+# expectation is that same page would be used multiple years in a row, with
+# iterative changes to design and content, as well as new news articles.
+#
+# Outside of these expectations, expect to adjust this config
 seeds:
   # Crawl content available via navigation and frontpage
   - url: https://www.tg.no
+  # Temp workaround to make sure hidden pages are captured
+  - url: https://www.tg.no/map
+  - url: https://www.tg.no/schedule
 include:
   # Basic pages
   - www.tg.no
@@ -20,14 +24,13 @@ waitUntil: load,networkidle0
 generateCDX: true
 combineWARCs: true
 saveState: always
+# Docs list 0 (disabled) as the default, so this should be a no-op. It was added
+# to work around a runner issue and left in case of future problems
+diskUtilization: 0
 workers: 4
-# TODO: Remove it not needed, hopefully we won't need consent flow on new site
-# Minimal profile that includes consent answers
-# profile: /crawls/profiles/tg24.tar.gz
-
-# Make "live" crawling view available at 9037
-newContext: window
-screencastPort: 9037
+# Browser profile: not used. tg.no has no cookie consent dialog. If a dialog or a
+# login is added, create a profile and set `profile:` here, see
+# docs/debugging.md.
 
 warcinfo:
   operator: The Gathering

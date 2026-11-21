@@ -1,4 +1,6 @@
 seeds:
+  - url: https://www.gathering.org/tg23/
+    include: www.gathering.org/(tg23|api)
   - url: https://www.gathering.org/tg22/
     include: www.gathering.org/(tg22|api)
   - url: https://archive.gathering.org/tg21/
